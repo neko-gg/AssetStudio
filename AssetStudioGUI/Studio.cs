@@ -13,7 +13,7 @@ using Object = AssetStudio.Object;
 
 namespace AssetStudioGUI
 {
-    internal enum ExportType
+    public enum ExportType
     {
         Convert,
         Raw,
@@ -27,12 +27,12 @@ namespace AssetStudioGUI
         Filtered
     }
 
-    internal enum ExportListType
+    public enum ExportListType
     {
         XML
     }
 
-    internal static class Studio
+    public static class Studio
     {
         public static AssetsManager assetsManager = new AssetsManager();
         public static AssemblyLoader assemblyLoader = new AssemblyLoader();
@@ -135,111 +135,12 @@ namespace AssetStudioGUI
         {
             StatusStripUpdate("Building asset list...");
 
-            string productName = null;
             var objectCount = assetsManager.assetsFileList.Sum(x => x.Objects.Count);
             var objectAssetItemDic = new Dictionary<Object, AssetItem>(objectCount);
             var containers = new List<(PPtr<Object>, string)>();
-            int i = 0;
+            string productName = null;
             Progress.Reset();
-            foreach (var assetsFile in assetsManager.assetsFileList)
-            {
-                foreach (var asset in assetsFile.Objects)
-                {
-                    var assetItem = new AssetItem(asset);
-                    objectAssetItemDic.Add(asset, assetItem);
-                    assetItem.UniqueID = " #" + i;
-                    var exportable = false;
-                    switch (asset)
-                    {
-                        case GameObject m_GameObject:
-                            assetItem.Text = m_GameObject.m_Name;
-                            break;
-                        case Texture2D m_Texture2D:
-                            if (!string.IsNullOrEmpty(m_Texture2D.m_StreamData?.path))
-                                assetItem.FullSize = asset.byteSize + m_Texture2D.m_StreamData.size;
-                            assetItem.Text = m_Texture2D.m_Name;
-                            exportable = true;
-                            break;
-                        case AudioClip m_AudioClip:
-                            if (!string.IsNullOrEmpty(m_AudioClip.m_Source))
-                                assetItem.FullSize = asset.byteSize + m_AudioClip.m_Size;
-                            assetItem.Text = m_AudioClip.m_Name;
-                            exportable = true;
-                            break;
-                        case VideoClip m_VideoClip:
-                            if (!string.IsNullOrEmpty(m_VideoClip.m_OriginalPath))
-                                assetItem.FullSize = asset.byteSize + (long)m_VideoClip.m_ExternalResources.m_Size;
-                            assetItem.Text = m_VideoClip.m_Name;
-                            exportable = true;
-                            break;
-                        case Shader m_Shader:
-                            assetItem.Text = m_Shader.m_ParsedForm?.m_Name ?? m_Shader.m_Name;
-                            exportable = true;
-                            break;
-                        case Mesh _:
-                        case TextAsset _:
-                        case AnimationClip _:
-                        case Font _:
-                        case MovieTexture _:
-                        case Sprite _:
-                            assetItem.Text = ((NamedObject)asset).m_Name;
-                            exportable = true;
-                            break;
-                        case Animator m_Animator:
-                            if (m_Animator.m_GameObject.TryGet(out var gameObject))
-                            {
-                                assetItem.Text = gameObject.m_Name;
-                            }
-                            exportable = true;
-                            break;
-                        case MonoBehaviour m_MonoBehaviour:
-                            if (m_MonoBehaviour.m_Name == "" && m_MonoBehaviour.m_Script.TryGet(out var m_Script))
-                            {
-                                assetItem.Text = m_Script.m_ClassName;
-                            }
-                            else
-                            {
-                                assetItem.Text = m_MonoBehaviour.m_Name;
-                            }
-                            exportable = true;
-                            break;
-                        case PlayerSettings m_PlayerSettings:
-                            productName = m_PlayerSettings.productName;
-                            break;
-                        case AssetBundle m_AssetBundle:
-                            foreach (var m_Container in m_AssetBundle.m_Container)
-                            {
-                                var preloadIndex = m_Container.Value.preloadIndex;
-                                var preloadSize = m_Container.Value.preloadSize;
-                                var preloadEnd = preloadIndex + preloadSize;
-                                for (int k = preloadIndex; k < preloadEnd; k++)
-                                {
-                                    containers.Add((m_AssetBundle.m_PreloadTable[k], m_Container.Key));
-                                }
-                            }
-                            assetItem.Text = m_AssetBundle.m_Name;
-                            break;
-                        case ResourceManager m_ResourceManager:
-                            foreach (var m_Container in m_ResourceManager.m_Container)
-                            {
-                                containers.Add((m_Container.Value, m_Container.Key));
-                            }
-                            break;
-                        case NamedObject m_NamedObject:
-                            assetItem.Text = m_NamedObject.m_Name;
-                            break;
-                    }
-                    if (assetItem.Text == "")
-                    {
-                        assetItem.Text = assetItem.TypeString + assetItem.UniqueID;
-                    }
-                    if (Properties.Settings.Default.displayAll || exportable)
-                    {
-                        exportableAssets.Add(assetItem);
-                    }
-                    Progress.Report(++i, objectCount);
-                }
-            }
+            exportableAssets = GetExportableAssets(assetsManager, objectAssetItemDic, containers, ref productName);
             foreach ((var pptr, var container) in containers)
             {
                 if (pptr.TryGet(out var obj))
@@ -247,10 +148,12 @@ namespace AssetStudioGUI
                     objectAssetItemDic[obj].Container = container;
                 }
             }
+
             foreach (var tmp in exportableAssets)
             {
                 tmp.SetSubItems();
             }
+
             containers.Clear();
 
             visibleAssets = exportableAssets;
@@ -333,6 +236,123 @@ namespace AssetStudioGUI
             return (productName, treeNodeCollection);
         }
 
+        public static List<AssetItem> GetExportableAssets(AssetsManager assetsManager, Dictionary<Object, AssetItem> objectAssetItemDic, List<(PPtr<Object>, string)> containers, ref string productName)
+        {
+            int i = 0;
+            int objectCount = assetsManager.assetsFileList.Sum(x => x.Objects.Count);
+            List<AssetItem> assetItems = new List<AssetItem>();
+
+            foreach (var assetsFile in assetsManager.assetsFileList)
+            {
+                foreach (var asset in assetsFile.Objects)
+                {
+                    var assetItem = new AssetItem(asset);
+                    objectAssetItemDic.Add(asset, assetItem);
+                    assetItem.UniqueID = " #" + i;
+                    var exportable = false;
+                    switch (asset)
+                    {
+                        case GameObject m_GameObject:
+                            assetItem.Text = m_GameObject.m_Name;
+                            break;
+                        case Texture2D m_Texture2D:
+                            if (!string.IsNullOrEmpty(m_Texture2D.m_StreamData?.path))
+                                assetItem.FullSize = asset.byteSize + m_Texture2D.m_StreamData.size;
+                            assetItem.Text = m_Texture2D.m_Name;
+                            exportable = true;
+                            break;
+                        case AudioClip m_AudioClip:
+                            if (!string.IsNullOrEmpty(m_AudioClip.m_Source))
+                                assetItem.FullSize = asset.byteSize + m_AudioClip.m_Size;
+                            assetItem.Text = m_AudioClip.m_Name;
+                            exportable = true;
+                            break;
+                        case VideoClip m_VideoClip:
+                            if (!string.IsNullOrEmpty(m_VideoClip.m_OriginalPath))
+                                assetItem.FullSize = asset.byteSize + (long) m_VideoClip.m_ExternalResources.m_Size;
+                            assetItem.Text = m_VideoClip.m_Name;
+                            exportable = true;
+                            break;
+                        case Shader m_Shader:
+                            assetItem.Text = m_Shader.m_ParsedForm?.m_Name ?? m_Shader.m_Name;
+                            exportable = true;
+                            break;
+                        case Mesh _:
+                        case TextAsset _:
+                        case AnimationClip _:
+                        case Font _:
+                        case MovieTexture _:
+                        case Sprite _:
+                            assetItem.Text = ((NamedObject) asset).m_Name;
+                            exportable = true;
+                            break;
+                        case Animator m_Animator:
+                            if (m_Animator.m_GameObject.TryGet(out var gameObject))
+                            {
+                                assetItem.Text = gameObject.m_Name;
+                            }
+
+                            exportable = true;
+                            break;
+                        case MonoBehaviour m_MonoBehaviour:
+                            if (m_MonoBehaviour.m_Name == "" && m_MonoBehaviour.m_Script.TryGet(out var m_Script))
+                            {
+                                assetItem.Text = m_Script.m_ClassName;
+                            }
+                            else
+                            {
+                                assetItem.Text = m_MonoBehaviour.m_Name;
+                            }
+
+                            exportable = true;
+                            break;
+                        case PlayerSettings m_PlayerSettings:
+                            productName = m_PlayerSettings.productName;
+                            break;
+                        case AssetBundle m_AssetBundle:
+                            foreach (var m_Container in m_AssetBundle.m_Container)
+                            {
+                                var preloadIndex = m_Container.Value.preloadIndex;
+                                var preloadSize = m_Container.Value.preloadSize;
+                                var preloadEnd = preloadIndex + preloadSize;
+                                for (int k = preloadIndex; k < preloadEnd; k++)
+                                {
+                                    containers.Add((m_AssetBundle.m_PreloadTable[k], m_Container.Key));
+                                }
+                            }
+
+                            assetItem.Text = m_AssetBundle.m_Name;
+                            break;
+                        case ResourceManager m_ResourceManager:
+                            foreach (var m_Container in m_ResourceManager.m_Container)
+                            {
+                                containers.Add((m_Container.Value, m_Container.Key));
+                            }
+
+                            break;
+                        case NamedObject m_NamedObject:
+                            assetItem.Text = m_NamedObject.m_Name;
+                            break;
+                    }
+
+                    if (assetItem.Text == "")
+                    {
+                        assetItem.Text = assetItem.TypeString + assetItem.UniqueID;
+                    }
+
+                    if (Properties.Settings.Default.displayAll || exportable)
+                    {
+                        assetItems.Add(assetItem);
+                    }
+
+                    Progress.Report(++i, objectCount);
+                }
+            }
+
+            return assetItems;
+        }
+
+
         public static Dictionary<string, SortedDictionary<int, TypeTreeItem>> BuildClassStructure()
         {
             var typeMap = new Dictionary<string, SortedDictionary<int, TypeTreeItem>>();
@@ -372,86 +392,99 @@ namespace AssetStudioGUI
         public static void ExportAssets(string savePath, List<AssetItem> toExportAssets, ExportType exportType)
         {
             ThreadPool.QueueUserWorkItem(state =>
+                                         {
+                                             int exportedCount = DoExportAssets(savePath, toExportAssets, exportType);
+                                             int toExportCount = toExportAssets.Count;
+
+                                             var statusText = exportedCount == 0 ? "Nothing exported." : $"Finished exporting {exportedCount} assets.";
+
+                                             if (toExportCount > exportedCount)
+                                             {
+                                                 statusText += $" {toExportCount - exportedCount} assets skipped (not extractable or files already exist)";
+                                             }
+
+                                             StatusStripUpdate(statusText);
+
+                                             if (Properties.Settings.Default.openAfterExport && exportedCount > 0)
+                                             {
+                                                 Process.Start(savePath);
+                                             }
+                                         });
+        }
+
+        public static int DoExportAssets(string savePath, List<AssetItem> toExportAssets, ExportType exportType)
+        {
+            Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
+
+            int toExportCount = toExportAssets.Count;
+            int exportedCount = 0;
+            int i = 0;
+            Progress.Reset();
+            foreach (var asset in toExportAssets)
             {
-                Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
-
-                int toExportCount = toExportAssets.Count;
-                int exportedCount = 0;
-                int i = 0;
-                Progress.Reset();
-                foreach (var asset in toExportAssets)
+                string exportPath;
+                switch (Properties.Settings.Default.assetGroupOption)
                 {
-                    string exportPath;
-                    switch (Properties.Settings.Default.assetGroupOption)
-                    {
-                        case 0: //type name
-                            exportPath = Path.Combine(savePath, asset.TypeString);
-                            break;
-                        case 1: //container path
-                            if (!string.IsNullOrEmpty(asset.Container))
-                            {
-                                exportPath = Path.Combine(savePath, Path.GetDirectoryName(asset.Container));
-                            }
-                            else
-                            {
-                                exportPath = savePath;
-                            }
-                            break;
-                        case 2: //source file
-                            exportPath = Path.Combine(savePath, asset.SourceFile.fullName + "_export");
-                            break;
-                        default:
-                            exportPath = savePath;
-                            break;
-                    }
-                    exportPath += Path.DirectorySeparatorChar;
-                    StatusStripUpdate($"Exporting {asset.TypeString}: {asset.Text}");
-                    try
-                    {
-                        switch (exportType)
+                    case 0: //type name
+                        exportPath = Path.Combine(savePath, asset.TypeString);
+                        break;
+                    case 1: //container path
+                        if (!string.IsNullOrEmpty(asset.Container))
                         {
-                            case ExportType.Raw:
-                                if (ExportRawFile(asset, exportPath))
-                                {
-                                    exportedCount++;
-                                }
-                                break;
-                            case ExportType.Dump:
-                                if (ExportDumpFile(asset, exportPath))
-                                {
-                                    exportedCount++;
-                                }
-                                break;
-                            case ExportType.Convert:
-                                if (ExportConvertFile(asset, exportPath))
-                                {
-                                    exportedCount++;
-                                }
-                                break;
+                            exportPath = Path.Combine(savePath, Path.GetDirectoryName(asset.Container));
                         }
-                    }
-                    catch (Exception ex)
+                        else
+                        {
+                            exportPath = savePath;
+                        }
+
+                        break;
+                    case 2: //source file
+                        exportPath = Path.Combine(savePath, asset.SourceFile.fullName + "_export");
+                        break;
+                    default:
+                        exportPath = savePath;
+                        break;
+                }
+
+                exportPath += Path.DirectorySeparatorChar;
+                StatusStripUpdate($"Exporting {asset.TypeString}: {asset.Text}");
+                try
+                {
+                    switch (exportType)
                     {
-                        MessageBox.Show($"Export {asset.Type}:{asset.Text} error\r\n{ex.Message}\r\n{ex.StackTrace}");
+                        case ExportType.Raw:
+                            if (ExportRawFile(asset, exportPath))
+                            {
+                                exportedCount++;
+                            }
+
+                            break;
+                        case ExportType.Dump:
+                            if (ExportDumpFile(asset, exportPath))
+                            {
+                                exportedCount++;
+                            }
+
+                            break;
+                        case ExportType.Convert:
+                            if (ExportConvertFile(asset, exportPath))
+                            {
+                                exportedCount++;
+                            }
+
+                            break;
                     }
-
-                    Progress.Report(++i, toExportCount);
                 }
-
-                var statusText = exportedCount == 0 ? "Nothing exported." : $"Finished exporting {exportedCount} assets.";
-
-                if (toExportCount > exportedCount)
+                catch (Exception ex)
                 {
-                    statusText += $" {toExportCount - exportedCount} assets skipped (not extractable or files already exist)";
+                    MessageBox.Show($"Export {asset.Type}:{asset.Text} error\r\n{ex.Message}\r\n{ex.StackTrace}");
                 }
 
-                StatusStripUpdate(statusText);
+                Progress.Report(++i, toExportCount);
+            }
 
-                if (Properties.Settings.Default.openAfterExport && exportedCount > 0)
-                {
-                    Process.Start(savePath);
-                }
-            });
+            return exportedCount;
         }
 
         public static void ExportAssetsList(string savePath, List<AssetItem> toExportAssets, ExportListType exportListType)
